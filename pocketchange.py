@@ -12,27 +12,25 @@ PUSHOVER_TOKEN=""
 PUSHOVER_USER=""
 
 RSS_FEEDS = [
+    "https://mxb.dev/feed.xml",
     "https://boz.com/rss.xml",
     "https://cprss.s3.amazonaws.com/weekly.statuscode.com.xml",
     "https://ma.ttias.be/cronweekly/index.xml",
-    "https://www.strongtowns.org/journal/?format=rss",
-    "https://mxb.dev/feed.xml",
     "https://beepb00p.xyz/rss.xml",
     "https://longreads.com/feed/",
-    "https://www.jamesshore.com/v2/feed",
-    "https://vasilishynkarenka.com/rss/"
+    "https://vasilishynkarenka.com/rss/",
+    "https://magazine.atavist.com/rss",
+    "https://www.joshwcomeau.com/rss.xml"
 ]
 UNUSED = [
-    # Got bored
-    "http://sreweekly.com/feed/",
+    "http://sreweekly.com/feed/", # booooring
+    "https://feeds.simplecast.com/L_U0HDJ5", # Maximum Fun, who has bad links
     "https://aeon.co/feed.rss",
-    # Haven't listened or read anything since I added it
-    "https://www.vicfoodguys.ca/feed/",
-    # Either malformed or hates AWS
-    "http://www.stilldrinking.org/rss/feed.xml",
+    "https://www.vicfoodguys.ca/feed/", # Haven't listened / read anything since I added it
+    "http://www.stilldrinking.org/rss/feed.xml", # either malformed or hates AWS
+    "https://www.strongtowns.org/journal/?format=rss"
 ]
-
-# This is a comma-separated list of tags to apply in Pocket
+# This is a comma-separated list of tags to apply
 TAGS="pocketchange"
 
 # No, I don't WANT to store all the time zones here but I WILL if I have to.
@@ -96,14 +94,15 @@ def add_to_pocket(url, title=None):
 
 def pull_from_feeds():
     for feed in RSS_FEEDS:
+        # get request
         # We should expect requests to resolve rather quickly.
         print("Pulling feed {} ".format(feed))
         try:
-            response = requests.get(feed, timeout=0.5)
+            response = requests.get(feed, timeout=3)
         except requests.exceptions.Timeout as e:
             print("Timeout pulling feed: {}".format(e))
             continue
-
+        
         # check status
         if (response.status_code != 200):
             notify("Failed to fetch feed for {}:\n{}.".format(feed, response.text))
@@ -117,11 +116,19 @@ def pull_from_feeds():
             print(e.msg)
             continue
 
-        for item in root[0].findall('item'):
+        potential_articles = root[0].findall('item')
+
+        for item in potential_articles:
             title = item.find('title').text
             url = item.find('link').text
 
             raw_publish_date = item.find('pubDate').text
+            if not raw_publish_date:
+              raw_publish_date = item.find('updated').text
+
+            if not raw_publish_date:
+              raw_publish_date = datetime.now(timezone.utc)
+
             publish_date = interpret_date(raw_publish_date)
 
             one_day_ago = datetime.now(timezone.utc) - timedelta(days=1)
@@ -129,10 +136,17 @@ def pull_from_feeds():
             is_fresh = publish_date > one_day_ago
 
             if (not is_fresh):
-                # We'll skip old articles
                 continue
 
             print("\tAdding '{}' to Pocket".format(title))
             add_to_pocket(url, title)
+
+def lambda_handler(event, context):
+    pull_from_feeds()
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps("Added new articles.")
+    }
 
 pull_from_feeds()
